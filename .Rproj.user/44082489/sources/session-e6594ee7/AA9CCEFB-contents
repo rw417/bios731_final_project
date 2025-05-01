@@ -1,0 +1,480 @@
+---
+title: "A Study on Popular Linear Assignment Algorithms"
+author: "Robert Wan"
+output:
+  xaringan::moon_reader:
+    css: xaringan-themer.css
+    nature:
+      titleSlideClass: ["left", "middle", "inverse"]
+      ratio: "16:9"
+header-includes:
+  - \usepackage{amsmath}
+  - \usepackage{amssymb}
+  - \usepackage{amsthm}
+---
+
+```{r xaringan-themer, include=FALSE, warning=FALSE}
+library(xaringanthemer)
+library(tidyverse)
+library(patchwork)
+library(microbenchmark)
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+
+
+extra_css <- list(
+    "ul" = list(`margin-bottom` = "0.5em",
+      `margin-top` = "0.5em"),
+  	"p" = list(`margin-bottom` = "0.25em"),
+	"ul li" = list(`margin-bottom` = "10px"),
+	"a" = list(color = "#007dba"),
+	"a:hover" = list("text-decoration" = "underline"),
+	".green" = list(color = "#348338"),
+	".red" = list(color = "#da291c"),
+  ".remark-slide-content" = list(`font-size` = "22px")
+)
+
+style_mono_accent(
+  base_color = "#012169",
+  header_font_google = google_font("DM Sans"),
+  text_font_google   = google_font("DM Sans", "400", "400i"),
+  code_font_google   = google_font("Courier Prime"),
+  extra_css = extra_css
+)
+
+knitr::opts_chunk$set(
+  eval = FALSE,
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+
+## Overview
+
+- Background
+  - Motivation: Cross-Modality Single Cell Integration
+  - Linear Assignment Problems
+- Algorithms for Linear Assignment Problems
+  - Hungarian Algorithm
+  - Junker-Volgenant Algorithm
+  - Auction Algorithm
+- Simulation and Evaluation
+- Future Directions
+
+---
+
+## Cross-Modality Single Cell Integration
+
+```{r matrix-grid, eval=TRUE, echo=FALSE, fig.align='center', fig.width=12, fig.height=7}
+# Create matrix layout
+n_row <- 25
+n_col <- 10
+
+# Plot matrix grid for RNA-seq
+mat_df_a <- expand.grid(
+  row = 1:n_row,
+  col = 1:n_col
+) %>%
+  mutate(
+    label = paste0("(", row, ",", col, ")"),
+    highlight = ifelse(row == 2, "maroon", ifelse(row==21, "navy", "white"))
+  )
+
+plot_a <- ggplot(mat_df_a, aes(x = col, y = row)) +
+  geom_tile(aes(fill = highlight), color = "black", linewidth = 0.6) +
+  scale_fill_identity() +  # use colors directly from 'highlight' column
+  coord_fixed() +
+  theme_void() + 
+  labs(x = "Genes", y = "Cells", 
+       title="Single Cell RNA-seq Data", subtitle="Values: RNA Expression") +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(size = 22, hjust = 0.5),
+    axis.title = element_text(size = 16),
+    axis.text = element_blank(),         
+    axis.ticks = element_blank(),        
+    panel.grid = element_blank(),        
+  )
+
+mat_df_b <- expand.grid(row = n_row:1, col = 1:n_col) %>%
+  mutate(
+    label = paste0("(", row, ",", col, ")"),
+    highlight = ifelse(row == 12, "maroon", ifelse(row==3, "navy", "white"))
+  )
+
+plot_b <- ggplot(mat_df_b, aes(x = col, y = row)) +
+  geom_tile(aes(fill = highlight), color = "black", linewidth = 0.6) +
+  scale_fill_identity() +
+  coord_fixed() +
+  labs(x = "Genes", y = "Cells", 
+       title = "Single Cell ATAC-seq Data", subtitle="Values: Chromatin Accessibility") +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(size = 22, hjust = 0.5),
+    axis.title = element_text(size = 16),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.grid = element_blank()
+  )
+
+# Combine
+grid.arrange(plot_a, plot_b, ncol = 2)
+```
+
+---
+
+## Cross-Modality Single Cell Integration
+
+```{r matrix-grid 2, eval=TRUE, echo=FALSE, fig.align='center', fig.width=12, fig.height=7}
+# Create matrix layout
+n_row <- 25
+n_col <- 10
+
+# Plot matrix grid for RNA-seq
+mat_df_a <- expand.grid(
+  row = 1:n_row,
+  col = 1:n_col
+) %>%
+  mutate(
+    label = paste0("(", row, ",", col, ")"),
+    highlight = ifelse(row == 2, "maroon", ifelse(row==21, "navy", "white"))
+  )
+
+plot_a <- ggplot(mat_df_a, aes(x = col, y = row)) +
+  geom_tile(aes(fill = highlight), color = "black", linewidth = 0.6) +
+  scale_fill_identity() +  # use colors directly from 'highlight' column
+  coord_fixed() +
+  theme_void() + 
+  labs(x = "Features", y = "Observations", title="Matrix A") +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(size = 22, hjust = 0.5),
+    axis.title = element_text(size = 16),
+    axis.text = element_blank(),         
+    axis.ticks = element_blank(),        
+    panel.grid = element_blank(),        
+  )
+
+mat_df_b <- expand.grid(row = n_row:1, col = 1:n_col) %>%
+  mutate(
+    label = paste0("(", row, ",", col, ")"),
+    highlight = ifelse(row == 12, "maroon", ifelse(row==3, "navy", "white"))
+  )
+
+plot_b <- ggplot(mat_df_b, aes(x = col, y = row)) +
+  geom_tile(aes(fill = highlight), color = "black", linewidth = 0.6) +
+  scale_fill_identity() +
+  coord_fixed() +
+  labs(x = "Features", y = "Observations", title="Matrix B") +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(size = 22, hjust = 0.5),
+    axis.title = element_text(size = 16),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.grid = element_blank()
+  )
+
+# Combine
+grid.arrange(plot_a, plot_b, ncol = 2)
+```
+
+---
+
+## Challenges
+- Challenges for integration at the cell level: high noise and massive data
+  - Matching cell types: very easy
+  - Matching cell sub-types: easy
+  - Matching individual cells: very difficult because noise overpowers the signal
+      - SOTA methods achieve ~ 20% correctness
+- My current research aims to match individual cells using a pseudo-likelihood and Gibbs-sampler type approach
+  - Drawback: computation time is very long
+  - Linear assignment algorithms should achieve the same goal but may be faster
+
+---
+
+## Linear Assignment Problems
+- The setup of the most basic variant of linear assignment problems
+  - There $n$ agents and $n$ tasks
+  - We have a cost matrix $C$ where $C_{ij}$ is the cost of assigning agent $i$ to task $j$
+  - Goal: assign each agent to a task while minimizing the total cost
+  - Enforce 1-to-1 assignment
+
+---
+
+## Linear Assignment Problems
+- The setup of the most basic variant of linear assignment problems
+  - There $n$ agents and $n$ tasks
+  - We have a cost matrix $C$ where $C_{ij}$ is the cost of assigning agent $i$ to task $j$
+  - Goal: assign each agent to a task while minimizing the total cost
+  - Enforce 1-to-1 assignment
+  
+- Parallels between LAP and cross-modality single cell integration
+  - $n$ cells from RNA-seq data (agents) and $n$ cells from ATAC-seq data (tasks)
+  - $C_{ij}$ describes the similarity between cell $i$ from RNA-seq and cell $j$ from ATAC-seq
+      - We are free to choose a suitable way to calculate the value of $C_{ij}$
+  - Goal: assign each cell from RNA-seq to a cell from ATAC-seq while maximizing the total similarity, i.e. minimize total dissimilarity
+  - Enforce 1-to-1 assignment
+
+---
+
+## Linear Assignment Problems
+
+$$\begin{array}{ll}
+\mathbf{C}=\begin{pmatrix}
+c_{11} & c_{12} & \dots & c_{1n} \\
+c_{21} & c_{22} & \dots & c_{2n} \\
+\vdots & \vdots & \ddots & \vdots \\
+c_{n1} & c_{n2} & \dots & c_{nn}
+\end{pmatrix}
+&
+\mathbf{X}=\begin{pmatrix}
+x_{11} & x_{12} & \dots & x_{1n} \\
+x_{21} & x_{22} & \dots & x_{2n} \\
+\vdots & \vdots & \ddots & \vdots \\
+x_{n1} & x_{n2} & \dots & x_{nn}
+\end{pmatrix}
+\end{array}$$
+
+$$\text{minimize } \sum_{i=1}^{n}\sum_{j=1}^{n}c_{ij}x_{ij} \\
+\text{subject to } \sum_{j=1}^{n}x_{ij}=1,\ \forall i=1,\dots,n \\
+\text{and } x_{ij} \in \{0, 1\},\ \forall i,j=1,\dots,n$$
+
+- **This is the same setup as linear programming, but with a special requirement that x can only take values of 0 or 1.**
+
+---
+
+## Popular Algorithms
+- Hungarian algorithm (aka Kuhn-Munkres algorithm)
+- Junker-Volgenant algorithm
+- Auction algorithm
+- Others
+  - Successive shortest path algorithm
+  - Cost scaling algorithm
+  - Network simplex algorithm
+  - Many more
+
+---
+
+## Hungarian Algorithm
+<div style="text-align: center;">
+![Hungarian Algorithm Description](images/Hungarian Algorithm Cropped.png)
+
+
+<div style="position: absolute; bottom: 20px; width: 90%; font-size: 0.7em; color: gray;">
+*Source: [Towards Data Science](https://towardsdatascience.com/optimum-assignment-and-the-hungarian-algorithm-8b1027628028/)*
+
+
+???
+1. Row Reduction: Subtract the minimum value in each row from all values in that row. (Ensures at least one zero per row).
+2. Column Reduction: Subtract the minimum value in each column (of the new matrix) from all values in that column. (Ensures at least one zero per column).
+3. Cover Zeros: Draw the minimum number of horizontal and/or vertical lines (k) required to cover all zeros in the matrix.
+4. Check for Optimality:
+
+    If k=n (the size of the matrix), an optimal assignment can be made using the current zeros. Go to Step 7.
+    If k<n, the current zero set is not sufficient. Proceed to Step 5 to create more zeros.
+
+5. Improve the Matrix: Find the smallest value (δ) among all uncovered elements.
+6. Adjust Matrix:
+
+    Subtract δ from all uncovered values.
+    Add δ to all values at the intersection of two lines (doubly covered).
+    Leave singly covered values unchanged.
+    Return to Step 3 (Cover Zeros) with the new matrix.
+
+7. Extract Assignment: Once k=n, find a perfect assignment (one zero per row and column) using only the zero cells in the final matrix. This assignment is an optimal solution with the minimum total cost.
+
+---
+
+## Hungarian Algorithm
+- Intuition: **If you subtract a constant value from every element in a row or every element in a column of the cost matrix, the optimal assignment remains the same.**
+  - All the operations preserve the relative cost structure of the matrix while helping us find the cheapest assignment.
+- Subtract the row or column minimum: "standardizing" the cost of each agent or each task
+  - Some agent or some task might be inherently costlier than other agents or tasks
+  - By finding the 0's, we find the relatively least costly assignment for each agent and task
+- Subtract the minimum uncovered value ($\delta$) from all uncovered cells:
+  - If $c_{ij}$ is uncovered, it means that agent $i$ and task $j$ are both unassigned
+  - Subtracting from all uncovered cells allows at least one more agent and one more task to be assigned
+- Cells covered by two lines:
+  - Adding $\delta$ to all doubly covered cells preserves the relative cost structure among all cells
+
+???
+Subtracting $\delta$ from all uncovered cells is equivalent to subtract $\delta$ from all uncovered **rows**and adding $\delta$ to all covered **columns**. With this operation, doubly covered cells have $\delta$ added to them.
+
+---
+
+## Junker-Volgenant Algorithm
+- Much faster than the Hungarian algorithm, especially for large matrices
+- Solves a  dual problem of the Hungarian algorithm 
+- Hungarian algorithm implicitly uses "potentials" (i.e. excess cost of a cell) while JV explicitly uses this
+- Iteratively assign tasks to each agent using shortest-path algorithms to avoid having to find the optimal matching at each step, which can be computationally intensive
+- Worse-case computation complexity:
+  - JV: $O(n^3)$
+  - Hungarian: $O(n^4)$
+
+---
+
+## Auction Algorithm
+- Analogous to an actual auction where agents bid for their most-valued tasks
+- Quantities
+  - $c_{ij}$ : how much agent $i$ values task $j$
+  - $p_{j}$ : the price of task $j$
+  - $d_{ij} = c_{ij} - p_{j}$ : the surplus of agent $i$ for being assigned to task $j$
+- Goal: maximize the total surplus of all agents
+- The speed of the algorithm can be tuned by an $\epsilon$ parameter, which is the increments with which agents bid, i.e. $\epsilon = p_{j}^{(b)} - p_{j}^{(b-1)}$
+
+---
+
+## Simulation Setup
+- Matrix $A$: a 100 x 25 matrix, cell values drawn from $N(0,1)$
+- Matrix $B$: $A$ + noise, noise drawn from $N(0,2)$
+- Matrix $\tilde{B}$: $B$ with row orders shuffled
+- Cost matrix: $C = cor(A, \tilde{B})$
+  - $c_{ij}$ is large when $A[i,]$ and $\tilde{B}[j,]$ are similar, i.e. $\tilde{B}[j,] = B[i,]$
+- Evaluate the correctness and computation times of the three algorithms under different:
+  - Noise levels (the standard deviation of the noise added to $B$)
+  - Number of observations
+  - Number of features
+- 1,000 iterations per scenario
+- For the auction algorithm, set $\epsilon = 1/n$ so that we can skip tuning it
+
+---
+
+## Simulation Results: By Noise Level
+
+```{r, eval=TRUE, echo=FALSE, warnings=FALSE, fig.align='center', fig.width=14, fig.height=7}
+noise_level_results <- readRDS(here::here("30_results", "noise_level_results.rds"))
+
+p1 <- ggplot(noise_level_results, aes(y = factor(noise_level), x = correct, fill = method)) +
+  geom_boxplot() +
+  labs(title = "Correctness of LAP Algorithms by Noise Level",
+       y = "Noise Level",
+       x = "Correctness") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2", name = "Method") +
+  theme(legend.position = "right")
+
+p2 <- ggplot(noise_level_results, aes(y = factor(noise_level), x = log10(time), fill = method)) +
+  geom_boxplot() +
+  labs(title = "Computation Times by Noise Level",
+       y = "Noise Level",
+       x = "Log Computation Time (microseconds)") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2", name = "Method") +
+  theme(legend.position = "right")
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+---
+
+## Simulation Results: By Number of Observations
+
+```{r, eval=TRUE, echo=FALSE, warnings=FALSE, fig.align='center', fig.width=14, fig.height=7}
+n_row_results <- readRDS(here::here("30_results", "n_row_results.rds"))
+
+p1 <- ggplot(n_row_results, aes(y = factor(n_rows), x = correct, fill = method)) +
+  geom_boxplot() +
+  labs(title = "Correctness of Matching Algorithms by Number of Observations",
+       y = "Number of Observations",
+       x = "Correctness") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2", name = "Method") +
+  theme(legend.position = "right")
+
+p2 <- ggplot(n_row_results, aes(y = factor(n_rows), x = log10(time), fill = method)) +
+  geom_boxplot() +
+  labs(title = "Computation Times by Number of Observations",
+       y = "Number of Observations",
+       x = "Log Computation Time (microseconds)") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2", name = "Method") +
+  theme(legend.position = "right")
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+---
+
+## Simulation Results: By Number of Features
+
+```{r, eval=TRUE, echo=FALSE, warnings=FALSE, fig.align='center', fig.width=14, fig.height=7}
+n_col_results <- readRDS(here::here("30_results", "n_col_results.RDS"))
+
+p1 <- ggplot(n_col_results, aes(y = factor(n_cols), x = correct, fill = method)) +
+  geom_boxplot() +
+  labs(title = "Correctness of Matching Algorithms by Number of Features",
+       y = "Number of Features",
+       x = "Correctness") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2", name = "Method") +
+  theme(legend.position = "right")
+
+p2 <- ggplot(n_col_results, aes(y = factor(n_cols), x = log10(time), fill = method)) +
+  geom_boxplot() +
+  labs(title = "Computation Times by Number of Features",
+       y = "Number of Features",
+       x = "Log Computation Time (microseconds)") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2", name = "Method") +
+  theme(legend.position = "right")
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+---
+
+## Simulation Results: By Observations and Features
+
+Using fewer features hurt matching quality more severely than trying to match more cells.
+
+```{r, eval=TRUE, echo=FALSE, warnings=FALSE, fig.align='center', fig.width=14, fig.height=6}
+row_col_results <- readRDS(here::here("30_results", "row_col_results.RDS"))
+
+p1 <- ggplot(row_col_results, aes(y = factor(n_cols), x = correct, fill = factor(n_rows))) +
+  geom_boxplot() +
+  labs(title = "Grouped by Number of Features",
+       y = "Number of Features",
+       x = "Correctness") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2", name = "Number of Observations") +
+  theme(legend.position = "right")
+
+p2 <- ggplot(row_col_results, aes(y = factor(n_rows), x = correct, fill = factor(n_cols))) +
+  geom_boxplot() +
+  labs(title = "Grouped by Number of Observations",
+       y = "Number of Observations",
+       x = "Correctness") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2", name = "Number of Features") +
+  theme(legend.position = "right")
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+---
+
+## Compared to a Gibbs Sampler Approach
+- 39% correctly matched even with noise $\sim N(0, 0.3)$
+- Took 5 minutes to run because we had to run parallel chains to avoid local maxima
+
+<div style="text-align: center;">
+![Gibbs](images/gibbs_demo.png)
+
+---
+
+## Future Directions
+- All 3 methods here are deterministic
+  - Single cell data has a lot of noise and is very large
+  - Non-deterministic algorithms may be faster and more stable
+- Some non-deterministic linear assignment algorithms include
+  - Randomized auction algorithm
+  - Simulated annealing
+  - Genetic algorithms
+- Still have to find a good objective function that is maximized when cells are correctly matched...
+  
+
+
+

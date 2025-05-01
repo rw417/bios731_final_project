@@ -1,0 +1,322 @@
+---
+title: "A Study on Popular Linear Assignment Algorithms"
+author: "Robert Wan"
+output:
+  xaringan::moon_reader:
+    css: xaringan-themer.css
+    nature:
+      titleSlideClass: ["left", "middle", "inverse"]
+      ratio: "16:9"
+header-includes:
+  - \usepackage{amsmath}
+  - \usepackage{amssymb}
+  - \usepackage{amsthm}
+---
+
+```{r xaringan-themer, include=FALSE, warning=FALSE}
+library(xaringanthemer)
+library(tidyverse)
+library(patchwork)
+library(microbenchmark)
+
+
+extra_css <- list(
+    "ul" = list(`margin-bottom` = "0.5em",
+      `margin-top` = "0.5em"),
+  	"p" = list(`margin-bottom` = "0.25em"),
+	"ul li" = list(`margin-bottom` = "10px"),
+	"a" = list(color = "#007dba"),
+	"a:hover" = list("text-decoration" = "underline"),
+	".green" = list(color = "#348338"),
+	".red" = list(color = "#da291c"),
+  ".remark-slide-content" = list(`font-size` = "22px")
+)
+
+style_mono_accent(
+  base_color = "#012169",
+  header_font_google = google_font("DM Sans"),
+  text_font_google   = google_font("DM Sans", "400", "400i"),
+  code_font_google   = google_font("Courier Prime"),
+  extra_css = extra_css
+)
+
+knitr::opts_chunk$set(
+  eval = FALSE
+)
+```
+
+
+## Overview
+
+- Background
+  - Cross-Modality Single Cell Integration
+  - Linear Assignment Problems
+- Algorithms for Linear Assignment Problems
+  - Hungarian Algorithm
+  - Jonker-Volgenant Algorithm
+  - Auction Algorithm
+- Simulation and Evaluations
+- Future Directions
+
+---
+
+## Cross-Modality Single Cell Integration
+
+```{r matrix-grid, eval=TRUE, echo=FALSE, fig.align='center', fig.width=12, fig.height=7}
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+
+# Create matrix layout
+n_row <- 25
+n_col <- 10
+
+# Plot matrix grid for RNA-seq
+mat_df_a <- expand.grid(
+  row = 1:n_row,
+  col = 1:n_col
+) %>%
+  mutate(
+    label = paste0("(", row, ",", col, ")"),
+    highlight = ifelse(row == 2, "maroon", ifelse(row==21, "navy", "white"))
+  )
+
+plot_a <- ggplot(mat_df_a, aes(x = col, y = row)) +
+  geom_tile(aes(fill = highlight), color = "black", linewidth = 0.6) +
+  scale_fill_identity() +  # use colors directly from 'highlight' column
+  coord_fixed() +
+  theme_void() + 
+  labs(x = "RNA Expression", y = "Cell ID", title="Single Cell RNA-seq Data") +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(size = 22, hjust = 0.5),
+    axis.title = element_text(size = 16),
+    axis.text = element_blank(),         # ❌ hide tick labels
+    axis.ticks = element_blank(),        # ❌ hide tick marks
+    panel.grid = element_blank(),        # ❌ hide grid lines
+  )
+
+mat_df_b <- expand.grid(row = n_row:1, col = 1:n_col) %>%
+  mutate(
+    label = paste0("(", row, ",", col, ")"),
+    highlight = ifelse(row == 12, "maroon", ifelse(row==3, "navy", "white"))
+  )
+
+plot_b <- ggplot(mat_df_b, aes(x = col, y = row)) +
+  geom_tile(aes(fill = highlight), color = "black", linewidth = 0.6) +
+  scale_fill_identity() +
+  coord_fixed() +
+  labs(x = "Chromatin Accessbility", y = "Cell ID", title = "Single Cell ATAC-seq Data") +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(size = 22, hjust = 0.5),
+    axis.title = element_text(size = 16),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.grid = element_blank()
+  )
+
+# Combine
+grid.arrange(plot_a, plot_b, ncol = 2)
+```
+
+---
+
+## Linear Assignment Problems
+- The setup of the most basic variant of linear assignment problems
+  - There $n$ agents and $n$ tasks
+  - We have a cost matrix $C$ where $C_{ij}$ is the cost of assigning agent $i$ to task $j$
+  - Goal: assign each agent to a task while minimizing the total cost
+  - Enforce 1-to-1 assignment
+
+---
+
+## Linear Assignment Problems
+- The setup of the most basic variant of linear assignment problems
+  - There $n$ agents and $n$ tasks
+  - We have a cost matrix $C$ where $C_{ij}$ is the cost of assigning agent $i$ to task $j$
+  - Goal: assign each agent to a task while minimizing the total cost
+  - Enforce 1-to-1 assignment
+  
+- Parallels between LAP and cross-modality single cell integration
+  - $n$ cells from RNA-seq data (agents) and $n$ cells from ATAC-seq data (tasks)
+  - $C_{ij}$ describes the similarity between cell $i$ from RNA-seq and cell $j$ from ATAC-seq
+      - We are free to choose a suitable way to calculate the value of $C_{ij}$
+  - Goal: assign each cell from RNA-seq to a cell from ATAC-seq while maximizing the total similarity, i.e. minimize total dissimilarity
+  - Enforce 1-to-1 assignment
+
+---
+
+## Linear Assignment Problems
+
+$$\begin{array}{ll}
+\mathbf{C}=\begin{pmatrix}
+c_{11} & c_{12} & \dots & c_{1n} \\
+c_{21} & c_{22} & \dots & c_{2n} \\
+\vdots & \vdots & \ddots & \vdots \\
+c_{n1} & c_{n2} & \dots & c_{nn}
+\end{pmatrix}
+&
+\mathbf{X}=\begin{pmatrix}
+x_{11} & x_{12} & \dots & x_{1n} \\
+x_{21} & x_{22} & \dots & x_{2n} \\
+\vdots & \vdots & \ddots & \vdots \\
+x_{n1} & x_{n2} & \dots & x_{nn}
+\end{pmatrix}
+\end{array}$$
+
+$$\text{minimize } \sum_{i=1}^{n}\sum_{j=1}^{n}c_{ij}x_{ij} \\
+\text{subject to } \sum_{j=1}^{n}x_{ij}=1,\ \forall i=1,\dots,n \\
+\text{and } x_{ij} \in \{0, 1\},\ \forall i,j=1,\dots,n$$
+
+- **This is the same setup as linear programming, but with a special requirement that x can only take values of 0 or 1.**
+
+---
+
+## Popular Algorithms
+- Hungarian algorithm (aka Kuhn-Munkres algorithm)
+- Jonker-Volgenant algorithm
+- Auction algorithm
+- Others
+  - Successive shortest path algorithm
+  - Cost scaling algorithm
+  - Network simplex algorithm
+  - Many more
+
+---
+
+## Hungarian Algorithm
+<div style="text-align: center;">
+![Hungarian Algorithm Description](images/Hungarian Algorithm Cropped.png)
+
+
+<div style="position: absolute; bottom: 20px; width: 90%; font-size: 0.7em; color: gray;">
+*Source: [Towards Data Science](https://towardsdatascience.com/optimum-assignment-and-the-hungarian-algorithm-8b1027628028/)*
+
+---
+
+## Hungarian Algorithm
+- Intuition:
+  - 
+
+
+---
+
+## About Rcpp
+
+>"Sometimes R code just isn’t fast enough. You’ve used profiling to figure out where your bottlenecks are, and you’ve done everything you can in R, but your code still isn’t fast enough."  - Hadley Wickham
+
+
+<br>
+- In this lecture you’ll learn how to improve performance by rewriting key functions in C++
+- Comes by way of the [Rcpp package](https://www.rcpp.org/)
+  - Makes it simple to connect C++ code to R
+
+---
+
+## About Rcpp
+
+Typical bottlenecks that C++ can address include:
+
+
+- Recursive functions, or problems which involve calling functions millions of times. The overhead of calling a function in C++ is much lower than that in R.
+- Problems that require advanced data structures and algorithms that R doesn’t provide. Through the standard template library (STL), C++ has efficient implementations of many important data structures, from ordered maps to double-ended queues.
+- Loops that can’t be easily vectorised because subsequent iterations depend on previous ones.
+- Linear algebra stuff
+
+???
+We're just going to talk a bit about some of the simpler stuff you can do with Rcpp
+---
+
+## A note on Rcpp
+
+You don't really need to know C++ to use Rcpp.
+
+- But... Rcpp is notoriously annoying to debug.
+
+
+???
+It took me over an hour to get it working on this machine since i haven't used it on the machine as a super simple example, even though I have used it previously. Actually it was 35 minutes but it felt like forever.
+---
+
+## Getting started with C++
+
+`cppFunction()` allows you to write C++ functions in R:
+
+```{r, eval = TRUE}
+library(Rcpp)
+
+cppFunction('int add(int x, int y, int z) {
+  int sum = x + y + z;
+  return sum;
+}')
+
+# add works like a regular R function
+add(1, 2, 3)
+
+```
+
+???
+When you run this code, Rcpp will compile the C++ code and construct an R function that connects to the compiled C++ function. We’re going to use this simple interface to learn how to write C++.
+- Talk about whats going on here
+---
+
+
+## Basic syntax
+
+Translate R functions to their C++ equivalents. Gonna go through some increasingly complex examples:
+
+- No inputs and a scalar output
+- Scalar input and scalar output
+- Vector input and scalar output
+- Vector input and vector output
+- Matrix input and vector output
+---
+
+
+## No inputs, scalar output
+
+This function has no arguments and always returns the integer 1:
+
+```{r}
+one <- function(){1L}
+```
+
+The equivalent C++ function is:
+
+```{r, eval = FALSE}
+int one() {
+  return 1;
+}
+```
+
+We can compile and use this from R with `cppFunction`:
+
+```{r, eval = FALSE}
+cppFunction('int one() {
+  return 1;
+}')
+```
+
+
+---
+
+## My package development workflow
+
+- load `devtools()`
+- `load_all()`
+- `document()`
+- `check()`
+- `install()`
+
+---
+
+## Resources
+
+- [Advanced R](http://adv-r.had.co.nz/Rcpp.html)
+- [usethis() demo](https://kbroman.org/AdvData/18_rpack_demo.html)
+- [John Muschelli's tutorial](https://johnmuschelli.com/Building_R_Packages/#32)
+
+
+
+

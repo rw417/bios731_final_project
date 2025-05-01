@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="" xml:lang="">
+  <head>
+    <title>A Study on Popular Linear Assignment Algorithms</title>
+    <meta charset="utf-8" />
+    <meta name="author" content="Robert Wan" />
+    <script src="final-presentation_files/header-attrs-2.29/header-attrs.js"></script>
+    <link rel="stylesheet" href="xaringan-themer.css" type="text/css" />
+  </head>
+  <body>
+    <textarea id="source">
+class: left, middle, inverse, title-slide
+
+.title[
+# A Study on Popular Linear Assignment Algorithms
+]
+.author[
+### Robert Wan
+]
+
+---
+
+
+
+
+
+## Overview
+
+- Background
+  - Motivation: Cross-Modality Single Cell Integration
+  - Linear Assignment Problems
+- Algorithms for Linear Assignment Problems
+  - Hungarian Algorithm
+  - Junker-Volgenant Algorithm
+  - Auction Algorithm
+- Simulation and Evaluation
+- Future Directions
+
+---
+
+## Cross-Modality Single Cell Integration
+
+&lt;img src="final-presentation_files/figure-html/matrix-grid-1.png" style="display: block; margin: auto;" /&gt;
+
+---
+
+## Cross-Modality Single Cell Integration
+
+&lt;img src="final-presentation_files/figure-html/matrix-grid 2-1.png" style="display: block; margin: auto;" /&gt;
+
+---
+
+## Challenges
+- Challenges for integration at the cell level: high noise and massive data
+  - Matching cell types: very easy
+  - Matching cell sub-types: easy
+  - Matching individual cells: very difficult because noise overpowers the signal
+      - SOTA methods achieve ~ 20% correctness
+- My current research aims to match individual cells using a pseudo-likelihood and Gibbs-sampler type approach
+  - Drawback: computation time is very long
+  - Linear assignment algorithms should achieve the same goal but may be faster
+
+---
+
+## Linear Assignment Problems
+- The setup of the most basic variant of linear assignment problems
+  - There `\(n\)` agents and `\(n\)` tasks
+  - We have a cost matrix `\(C\)` where `\(C_{ij}\)` is the cost of assigning agent `\(i\)` to task `\(j\)`
+  - Goal: assign each agent to a task while minimizing the total cost
+  - Enforce 1-to-1 assignment
+
+---
+
+## Linear Assignment Problems
+- The setup of the most basic variant of linear assignment problems
+  - There `\(n\)` agents and `\(n\)` tasks
+  - We have a cost matrix `\(C\)` where `\(C_{ij}\)` is the cost of assigning agent `\(i\)` to task `\(j\)`
+  - Goal: assign each agent to a task while minimizing the total cost
+  - Enforce 1-to-1 assignment
+  
+- Parallels between LAP and cross-modality single cell integration
+  - `\(n\)` cells from RNA-seq data (agents) and `\(n\)` cells from ATAC-seq data (tasks)
+  - `\(C_{ij}\)` describes the similarity between cell `\(i\)` from RNA-seq and cell `\(j\)` from ATAC-seq
+      - We are free to choose a suitable way to calculate the value of `\(C_{ij}\)`
+  - Goal: assign each cell from RNA-seq to a cell from ATAC-seq while maximizing the total similarity, i.e. minimize total dissimilarity
+  - Enforce 1-to-1 assignment
+
+---
+
+## Linear Assignment Problems
+
+`$$\begin{array}{ll}
+\mathbf{C}=\begin{pmatrix}
+c_{11} &amp; c_{12} &amp; \dots &amp; c_{1n} \\
+c_{21} &amp; c_{22} &amp; \dots &amp; c_{2n} \\
+\vdots &amp; \vdots &amp; \ddots &amp; \vdots \\
+c_{n1} &amp; c_{n2} &amp; \dots &amp; c_{nn}
+\end{pmatrix}
+&amp;
+\mathbf{X}=\begin{pmatrix}
+x_{11} &amp; x_{12} &amp; \dots &amp; x_{1n} \\
+x_{21} &amp; x_{22} &amp; \dots &amp; x_{2n} \\
+\vdots &amp; \vdots &amp; \ddots &amp; \vdots \\
+x_{n1} &amp; x_{n2} &amp; \dots &amp; x_{nn}
+\end{pmatrix}
+\end{array}$$`
+
+`$$\text{minimize } \sum_{i=1}^{n}\sum_{j=1}^{n}c_{ij}x_{ij} \\
+\text{subject to } \sum_{j=1}^{n}x_{ij}=1,\ \forall i=1,\dots,n \\
+\text{and } x_{ij} \in \{0, 1\},\ \forall i,j=1,\dots,n$$`
+
+- **This is the same setup as linear programming, but with a special requirement that x can only take values of 0 or 1.**
+
+---
+
+## Popular Algorithms
+- Hungarian algorithm (aka Kuhn-Munkres algorithm)
+- Junker-Volgenant algorithm
+- Auction algorithm
+- Others
+  - Successive shortest path algorithm
+  - Cost scaling algorithm
+  - Network simplex algorithm
+  - Many more
+
+---
+
+## Hungarian Algorithm
+&lt;div style="text-align: center;"&gt;
+![Hungarian Algorithm Description](images/Hungarian Algorithm Cropped.png)
+
+
+&lt;div style="position: absolute; bottom: 20px; width: 90%; font-size: 0.7em; color: gray;"&gt;
+*Source: [Towards Data Science](https://towardsdatascience.com/optimum-assignment-and-the-hungarian-algorithm-8b1027628028/)*
+
+
+???
+1. Row Reduction: Subtract the minimum value in each row from all values in that row. (Ensures at least one zero per row).
+2. Column Reduction: Subtract the minimum value in each column (of the new matrix) from all values in that column. (Ensures at least one zero per column).
+3. Cover Zeros: Draw the minimum number of horizontal and/or vertical lines (k) required to cover all zeros in the matrix.
+4. Check for Optimality:
+
+    If k=n (the size of the matrix), an optimal assignment can be made using the current zeros. Go to Step 7.
+    If k&lt;n, the current zero set is not sufficient. Proceed to Step 5 to create more zeros.
+
+5. Improve the Matrix: Find the smallest value (δ) among all uncovered elements.
+6. Adjust Matrix:
+
+    Subtract δ from all uncovered values.
+    Add δ to all values at the intersection of two lines (doubly covered).
+    Leave singly covered values unchanged.
+    Return to Step 3 (Cover Zeros) with the new matrix.
+
+7. Extract Assignment: Once k=n, find a perfect assignment (one zero per row and column) using only the zero cells in the final matrix. This assignment is an optimal solution with the minimum total cost.
+
+---
+
+## Hungarian Algorithm
+- Intuition: **If you subtract a constant value from every element in a row or every element in a column of the cost matrix, the optimal assignment remains the same.**
+  - All the operations preserve the relative cost structure of the matrix while helping us find the cheapest assignment.
+- Subtract the row or column minimum: "standardizing" the cost of each agent or each task
+  - Some agent or some task might be inherently costlier than other agents or tasks
+  - By finding the 0's, we find the relatively least costly assignment for each agent and task
+- Subtract the minimum uncovered value (`\(\delta\)`) from all uncovered cells:
+  - If `\(c_{ij}\)` is uncovered, it means that agent `\(i\)` and task `\(j\)` are both unassigned
+  - Subtracting from all uncovered cells allows at least one more agent and one more task to be assigned
+- Cells covered by two lines:
+  - Adding `\(\delta\)` to all doubly covered cells preserves the relative cost structure among all cells
+
+???
+Subtracting `\(\delta\)` from all uncovered cells is equivalent to subtract `\(\delta\)` from all uncovered **rows**and adding `\(\delta\)` to all covered **columns**. With this operation, doubly covered cells have `\(\delta\)` added to them.
+
+---
+
+## Junker-Volgenant Algorithm
+- Much faster than the Hungarian algorithm, especially for large matrices
+- Solves a  dual problem of the Hungarian algorithm 
+- Hungarian algorithm implicitly uses "potentials" (i.e. excess cost of a cell) while JV explicitly uses this
+- Iteratively assign tasks to each agent using shortest-path algorithms to avoid having to find the optimal matching at each step, which can be computationally intensive
+- Worse-case computation complexity:
+  - JV: `\(O(n^3)\)`
+  - Hungarian: `\(O(n^4)\)`
+
+---
+
+## Auction Algorithm
+- Analogous to an actual auction where agents bid for their most-valued tasks
+- Quantities
+  - `\(c_{ij}\)` : how much agent `\(i\)` values task `\(j\)`
+  - `\(p_{j}\)` : the price of task `\(j\)`
+  - `\(d_{ij} = c_{ij} - p_{j}\)` : the surplus of agent `\(i\)` for being assigned to task `\(j\)`
+- Goal: maximize the total surplus of all agents
+- The speed of the algorithm can be tuned by an `\(\epsilon\)` parameter, which is the increments with which agents bid, i.e. `\(\epsilon = p_{j}^{(b)} - p_{j}^{(b-1)}\)`
+
+---
+
+## Simulation Setup
+- Matrix `\(A\)`: a 100 x 25 matrix, cell values drawn from `\(N(0,1)\)`
+- Matrix `\(B\)`: `\(A\)` + noise, noise drawn from `\(N(0,2)\)`
+- Matrix `\(\tilde{B}\)`: `\(B\)` with row orders shuffled
+- Cost matrix: `\(C = cor(A, \tilde{B})\)`
+  - `\(c_{ij}\)` is large when `\(A[i,]\)` and `\(\tilde{B}[j,]\)` are similar, i.e. `\(\tilde{B}[j,] = B[i,]\)`
+- Evaluate the correctness and computation times of the three algorithms under different:
+  - Noise levels (the standard deviation of the noise added to `\(B\)`)
+  - Number of observations
+  - Number of features
+- 1,000 iterations per scenario
+- For the auction algorithm, set `\(\epsilon = 1/n\)` so that we can skip tuning it
+
+---
+
+## Simulation Results: By Noise Level
+
+&lt;img src="final-presentation_files/figure-html/unnamed-chunk-1-1.png" style="display: block; margin: auto;" /&gt;
+
+---
+
+## Simulation Results: By Number of Observations
+
+&lt;img src="final-presentation_files/figure-html/unnamed-chunk-2-1.png" style="display: block; margin: auto;" /&gt;
+
+---
+
+## Simulation Results: By Number of Features
+
+&lt;img src="final-presentation_files/figure-html/unnamed-chunk-3-1.png" style="display: block; margin: auto;" /&gt;
+
+---
+
+## Simulation Results: By Observations and Features
+
+Using fewer features hurt matching quality more severely than trying to match more cells.
+
+&lt;img src="final-presentation_files/figure-html/unnamed-chunk-4-1.png" style="display: block; margin: auto;" /&gt;
+
+---
+
+## Compared to a Gibbs Sampler Approach
+- 39% correctly matched even with noise `\(\sim N(0, 0.3)\)`
+- Took 5 minutes to run because we had to run parallel chains to avoid local maxima
+
+&lt;div style="text-align: center;"&gt;
+![Gibbs](images/gibbs_demo.png)
+
+---
+
+## Future Directions
+- All 3 methods here are deterministic
+  - Single cell data has a lot of noise and is very large
+  - Non-deterministic algorithms may be faster and more stable
+- Some non-deterministic linear assignment algorithms include
+  - Randomized auction algorithm
+  - Simulated annealing
+  - Genetic algorithms
+- Still have to find a good objective function that is maximized when cells are correctly matched...
+  
+
+
+
+    </textarea>
+<style data-target="print-only">@media screen {.remark-slide-container{display:block;}.remark-slide-scaler{box-shadow:none;}}</style>
+<script src="https://remarkjs.com/downloads/remark-latest.min.js"></script>
+<script>var slideshow = remark.create({
+"ratio": "16:9"
+});
+if (window.HTMLWidgets) slideshow.on('afterShowSlide', function (slide) {
+  window.dispatchEvent(new Event('resize'));
+});
+(function(d) {
+  var s = d.createElement("style"), r = d.querySelector(".remark-slide-scaler");
+  if (!r) return;
+  s.type = "text/css"; s.innerHTML = "@page {size: " + r.style.width + " " + r.style.height +"; }";
+  d.head.appendChild(s);
+})(document);
+
+(function(d) {
+  var el = d.getElementsByClassName("remark-slides-area");
+  if (!el) return;
+  var slide, slides = slideshow.getSlides(), els = el[0].children;
+  for (var i = 1; i < slides.length; i++) {
+    slide = slides[i];
+    if (slide.properties.continued === "true" || slide.properties.count === "false") {
+      els[i - 1].className += ' has-continuation';
+    }
+  }
+  var s = d.createElement("style");
+  s.type = "text/css"; s.innerHTML = "@media print { .has-continuation { display: none; } }";
+  d.head.appendChild(s);
+})(document);
+// delete the temporary CSS (for displaying all slides initially) when the user
+// starts to view slides
+(function() {
+  var deleted = false;
+  slideshow.on('beforeShowSlide', function(slide) {
+    if (deleted) return;
+    var sheets = document.styleSheets, node;
+    for (var i = 0; i < sheets.length; i++) {
+      node = sheets[i].ownerNode;
+      if (node.dataset["target"] !== "print-only") continue;
+      node.parentNode.removeChild(node);
+    }
+    deleted = true;
+  });
+})();
+// add `data-at-shortcutkeys` attribute to <body> to resolve conflicts with JAWS
+// screen reader (see PR #262)
+(function(d) {
+  let res = {};
+  d.querySelectorAll('.remark-help-content table tr').forEach(tr => {
+    const t = tr.querySelector('td:nth-child(2)').innerText;
+    tr.querySelectorAll('td:first-child .key').forEach(key => {
+      const k = key.innerText;
+      if (/^[a-z]$/.test(k)) res[k] = t;  // must be a single letter (key)
+    });
+  });
+  d.body.setAttribute('data-at-shortcutkeys', JSON.stringify(res));
+})(document);
+(function() {
+  "use strict"
+  // Replace <script> tags in slides area to make them executable
+  var scripts = document.querySelectorAll(
+    '.remark-slides-area .remark-slide-container script'
+  );
+  if (!scripts.length) return;
+  for (var i = 0; i < scripts.length; i++) {
+    var s = document.createElement('script');
+    var code = document.createTextNode(scripts[i].textContent);
+    s.appendChild(code);
+    var scriptAttrs = scripts[i].attributes;
+    for (var j = 0; j < scriptAttrs.length; j++) {
+      s.setAttribute(scriptAttrs[j].name, scriptAttrs[j].value);
+    }
+    scripts[i].parentElement.replaceChild(s, scripts[i]);
+  }
+})();
+(function() {
+  var links = document.getElementsByTagName('a');
+  for (var i = 0; i < links.length; i++) {
+    if (/^(https?:)?\/\//.test(links[i].getAttribute('href'))) {
+      links[i].target = '_blank';
+    }
+  }
+})();</script>
+
+<script>
+slideshow._releaseMath = function(el) {
+  var i, text, code, codes = el.getElementsByTagName('code');
+  for (i = 0; i < codes.length;) {
+    code = codes[i];
+    if (code.parentNode.tagName !== 'PRE' && code.childElementCount === 0) {
+      text = code.textContent;
+      if (/^\\\((.|\s)+\\\)$/.test(text) || /^\\\[(.|\s)+\\\]$/.test(text) ||
+          /^\$\$(.|\s)+\$\$$/.test(text) ||
+          /^\\begin\{([^}]+)\}(.|\s)+\\end\{[^}]+\}$/.test(text)) {
+        code.outerHTML = code.innerHTML;  // remove <code></code>
+        continue;
+      }
+    }
+    i++;
+  }
+};
+slideshow._releaseMath(document);
+</script>
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+(function () {
+  var script = document.createElement('script');
+  script.type = 'text/javascript';
+  script.src  = 'https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-MML-AM_CHTML';
+  if (location.protocol !== 'file:' && /^https?:/.test(script.src))
+    script.src  = script.src.replace(/^https?:/, '');
+  document.getElementsByTagName('head')[0].appendChild(script);
+})();
+</script>
+  </body>
+</html>
